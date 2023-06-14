@@ -1,0 +1,48 @@
+name: Build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+        - name: Checkout
+          uses: actions/checkout@v3
+        - name: Set up QEMU
+          uses: docker/setup-qemu-action@v2
+        - name: Set up Docker Buildx
+          uses: docker/setup-buildx-action@v2
+        - name: Login to GHCR
+          uses: docker/login-action@v2
+          with:
+            registry: ghcr.io
+            username: ${{ github.actor }}
+            password: ${{ github.token }}
+        - name: Get version and hashes
+          id: hash-check
+          run: |
+            # import trusted gpg key from monero repo (not using latest but specific commit that added this key)
+            curl -sL https://github.com/monero-project/monero/raw/aa9ba3064e4b59f7c378561f2716ca129bc7f846/utils/gpg_keys/binaryfate.asc | gpg --import -
+
+            # download + verify hashes.txt
+            curl -sL https://getmonero.org/downloads/hashes.txt -o hashes.txt
+            gpg --verify hashes.txt
+
+            # get version
+            echo "version=$(cat hashes.txt | grep -om1 'v\([0-9]\+\.\)\{3\}[0-9]\+')" >> "$GITHUB_OUTPUT"
+        - name: Build and push
+          uses: docker/build-push-action@v2
+          with:
+            context: .
+            file: ./Dockerfile
+            platforms: linux/amd64,linux/arm64,linux/arm/v7
+            push: true
+            build-args: |
+              version=${{ steps.hash-check.outputs.version }}
+            tags: |
+              ghcr.io/fgardt/monero:latest
+              ghcr.io/fgardt/monero:${{ steps.hash-check.outputs.version }}
